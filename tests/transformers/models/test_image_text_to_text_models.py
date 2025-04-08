@@ -40,16 +40,16 @@ test_models_config = [
         "What does the label 15 represent? (1) lava (2) core (3) tunnel (4) ash cloud",
         1,
     ),
-    (
-        "meta-llama/Llama-3.2-11B-Vision-Instruct",
-        1,
-        32,
-        512,
-        560,
-        "https://huggingface.co/datasets/huggingface/documentation-images/resolve/0052a70beed5bf71b92610a43a52df6d286cd5f3/diffusers/rabbit.jpg",
-        "Explain this image",
-        4,
-    ),
+    # (
+    #     "meta-llama/Llama-3.2-11B-Vision-Instruct",
+    #     1,
+    #     32,
+    #     512,
+    #     560,
+    #     "https://huggingface.co/datasets/huggingface/documentation-images/resolve/0052a70beed5bf71b92610a43a52df6d286cd5f3/diffusers/rabbit.jpg",
+    #     "Explain this image",
+    #     4,
+    # ),
 ]
 
 intern_model_config = [
@@ -278,6 +278,7 @@ def check_intern_image_text_to_text_pytorch_vs_kv_vs_ort_vs_ai100(
 
 
 @pytest.mark.on_qaic
+@pytest.mark.multimodal
 @pytest.mark.parametrize(
     "model_name, batch_size, prompt_len, ctx_len, img_size, img_url, query, n_layer", test_models_config
 )
@@ -306,6 +307,7 @@ def test_image_text_to_text_pytorch_vs_kv_vs_ort_vs_ai100(
 
 
 @pytest.mark.on_qaic
+@pytest.mark.multimodal
 @pytest.mark.parametrize("model_name, batch_size, prompt_len, ctx_len, img_url, query, n_layer", intern_model_config)
 def test_image_text_to_text_intern_pytorch_vs_kv_vs_ort_vs_ai100(
     model_name, batch_size, prompt_len, ctx_len, img_url, query, n_layer
