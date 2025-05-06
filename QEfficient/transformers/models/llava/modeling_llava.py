@@ -27,8 +27,9 @@ class QEFFLlavaEncoderWrapper(nn.Module):
         self.model = model
         self.model.vision_model = self.model.vision_tower
 
-    def forward(self, pixel_values):
+    def forward(self, input_ids, pixel_values):
         # Image features
+        inputs_embeds = self.model.get_input_embeddings()(input_ids)
         image_outputs = self.model.vision_tower(pixel_values, output_hidden_states=True)
         selected_image_feature = image_outputs.hidden_states[self.model.config.vision_feature_layer]
         vision_feature_select_strategy = self.model.config.vision_feature_select_strategy
@@ -39,8 +40,13 @@ class QEFFLlavaEncoderWrapper(nn.Module):
         else:
             raise ValueError(f"Unexpected select feature strategy: {self.model.config.vision_feature_select_strategy}")
         vision_embeds = self.model.multi_modal_projector(selected_image_feature)
+        mask = input_ids == self.model.config.image_token_index
+        indices1 = mask.to(torch.int64).cumsum(1) - 1
+        indices0 = torch.arange(mask.shape[0]).view(-1, 1)
+        vision_embeds_expanded = vision_embeds[indices0, indices1]
+        inputs_embeds = torch.where(mask.unsqueeze(-1), vision_embeds_expanded, inputs_embeds)
 
-        return vision_embeds
+        return inputs_embeds
 
 
 class QEFFLlavaDecoderWrapper(nn.Module):
@@ -51,13 +57,9 @@ class QEFFLlavaDecoderWrapper(nn.Module):
         self.language_model = self.model.language_model
 
     def forward(self, input_ids, vision_embeds, position_ids, past_key_values):
-        inputs_embeds = self.model.get_input_embeddings()(input_ids)
-        vision_embeds = vision_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
-        mask = input_ids == self.model.config.image_token_index
-        indices1 = mask.to(torch.int64).cumsum(1) - 1
-        indices0 = torch.arange(mask.shape[0]).view(-1, 1)
-        vision_embeds_expanded = vision_embeds[indices0, indices1]
-        inputs_embeds = torch.where(mask.unsqueeze(-1), vision_embeds_expanded, inputs_embeds)
+        image_embeds = vision_embeds[:, : input_ids.shape[1], :]
+        inputs_embeds = self.model.language_model.get_input_embeddings()(input_ids)
+        inputs_embeds = torch.where(input_ids.shape[1] == torch.tensor(1), inputs_embeds, image_embeds)
         outputs = self.model.language_model(
             inputs_embeds=inputs_embeds,
             position_ids=position_ids,
@@ -115,10 +117,11 @@ class QEffLlavaForConditionalGeneration(LlavaForConditionalGeneration):
             raise NotImplementedError("Image Size other than 336 is not supported for Llava models yet.")
         vision_inputs = {
             "pixel_values": torch.zeros((BS, NUM_CHANNEL, img_size, img_size), dtype=torch.float32),
+            "input_ids": torch.ones((BS, SEQ_LEN), dtype=torch.int64),
         }
         lang_inputs = {
             "input_ids": torch.ones((BS, SEQ_LEN), dtype=torch.int64),
-            "vision_embeds": torch.ones((BS, 576, self.language_model.config.hidden_size), dtype=torch.float32),
+            "vision_embeds": torch.ones((BS, SEQ_LEN, self.language_model.config.hidden_size), dtype=torch.float32),
             "attention_mask": torch.ones((BS, SEQ_LEN), dtype=torch.int64),
         }
         lang_inputs["position_ids"] = lang_inputs.pop("attention_mask").cumsum(1)
@@ -176,6 +179,7 @@ class QEffLlavaForConditionalGeneration(LlavaForConditionalGeneration):
                 "ctx_len": ctx_len,
                 "max_num_images": max_num_images,
                 "img_size": img_size,
+                "chunk_length": prefill_seq_len,
             },
             {
                 "batch_size": batch_size,
@@ -183,6 +187,7 @@ class QEffLlavaForConditionalGeneration(LlavaForConditionalGeneration):
                 "ctx_len": ctx_len,
                 "max_num_images": max_num_images,
                 "img_size": img_size,
+                "chunk_length": prefill_seq_len,
             },
         ]
         specializations = {}
@@ -200,10 +205,12 @@ class QEffLlavaForConditionalGeneration(LlavaForConditionalGeneration):
 
         vision_dynamic_axes = {
             "pixel_values": {0: "batch_size", 2: "img_size", 3: "img_size"},
+            "input_ids": {0: "batch_size", 1: "seq_len"},
         }
         lang_dynamic_axes = {
             "input_ids": {0: "batch_size", 1: "seq_len"},
             "position_ids": {0: "batch_size", 1: "seq_len"},
+            "vision_embeds": {0: "batch_size", 1: "chunk_length"},
         }
         for i in range(num_layers):
             lang_dynamic_axes[f"past_key.{i}"] = {0: "batch_size", 2: "ctx_len"}
