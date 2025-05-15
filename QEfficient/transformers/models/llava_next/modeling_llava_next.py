@@ -126,11 +126,12 @@ class QEffLlavaNextDecoderWrapper(nn.Module):
         self.config = self.model.config
         self.language_model = self.model.language_model
 
-    def forward(self, input_ids, vision_embeds, position_ids, past_key_values):
+    def forward(self, input_ids, vision_embeds, position_ids, past_key_values, only_text = False):
         # *where to skip image encoder for decode*
-        image_embeds = vision_embeds[:, : input_ids.shape[1], :]
         inputs_embeds = self.model.language_model.get_input_embeddings()(input_ids)
+        image_embeds = torch.where(torch.tensor(only_text), inputs_embeds, vision_embeds[:, : input_ids.shape[1], :])
         inputs_embeds = torch.where(input_ids.shape[1] == torch.tensor(1), inputs_embeds, image_embeds)
+    
         outputs = self.language_model(
             inputs_embeds=inputs_embeds,
             position_ids=position_ids,
@@ -189,6 +190,7 @@ class QEffLlavaNextForConditionalGeneration(LlavaNextForConditionalGeneration):
                 ),
                 dtype=torch.float32,
             ),
+            "only_text": False,
         }
         lang_inputs["position_ids"] = lang_inputs.pop("attention_mask").cumsum(1)
         lang_inputs["past_key_values"] = []
@@ -216,6 +218,7 @@ class QEffLlavaNextForConditionalGeneration(LlavaNextForConditionalGeneration):
             inputs["lang"] = lang_inputs
         else:
             lang_inputs.pop("vision_embeds")
+            lang_inputs.pop("only_text")
             inputs = {**vision_inputs, **lang_inputs}
         return inputs
 
@@ -232,6 +235,10 @@ class QEffLlavaNextForConditionalGeneration(LlavaNextForConditionalGeneration):
         num_patches = compiler_options.pop("num_patches", None)
         image_size_height = compiler_options.pop("image_size_height", None)
         image_size_width = compiler_options.pop("image_size_width", None)
+        vision_seq_len = compiler_options.pop("vision_seq_len", None)
+        if vision_seq_len is None:
+            vision_seq_len = constants.GRANITEVISION_PREFIL_SEQ_LEN
+            logger.warning(f"Setting vision_seq_len to be {vision_seq_len}, as it wasn't passed in compile arguements")
 
         if num_patches is None:
             num_patches = constants.GRANITEVISION_NUM_PATCHES
@@ -270,7 +277,7 @@ class QEffLlavaNextForConditionalGeneration(LlavaNextForConditionalGeneration):
         vision = [
             {
                 "batch_size": batch_size,
-                "seq_len": prefill_seq_len,
+                "seq_len": vision_seq_len,
                 "ctx_len": ctx_len,
                 "image_size_height": image_size_height,
                 "image_size_width": image_size_width,

@@ -288,7 +288,6 @@ class InputHandlerVLM:
         vision_inputs = {
             k: v for k, v in inputs.items() if k in {"pixel_values", "aspect_ratio_ids", "aspect_ratio_mask"}
         }
-
         for i in range(num_hidden_layers):
             if hasattr(txt_cfg, "cross_attention_layers") and i in cross_attention_layers:
                 idx = cross_attention_layers.index(i)
@@ -307,6 +306,9 @@ class InputHandlerVLM:
                     (self.batch_size, num_key_value_heads, self.ctx_len, head_dim), dtype=np.float32
                 )
         lang_inputs = {k: v for k, v in inputs.items() if k not in vision_inputs}
+        if vision_inputs:
+            vision_inputs["input_ids"] = inputs["input_ids"]
+
         return vision_inputs, lang_inputs
 
     def update_vlm_ort_outputs(self, ort_outputs):

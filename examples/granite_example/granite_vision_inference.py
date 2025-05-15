@@ -30,13 +30,12 @@ def run_model(
 ):
     ## STEP - 1 Load the Processor and Model
 
-    processor = AutoProcessor.from_pretrained(model_name, token=token)
+    processor = AutoProcessor.from_pretrained(model_name)
 
     # `kv_offload` is used to compile the model in a 2 QPCs.Currently we are not supporting 1 qpc so the flag false is not allowed.
     # The `kv_offload` flag should always be set to True.
     # The Dual QPC approach splits the model to perform Image Encoding and Output generation in 2 different QPCs.
     # The outputs of the Vision Encoder are then passed to the Language model via host in this case.
-
     model = QEFFAutoModelForImageTextToText.from_pretrained(model_name, token=token, kv_offload=kv_offload)
 
     ## STEP - 2 Export & Compile the Model
