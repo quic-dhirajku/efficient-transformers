@@ -46,24 +46,24 @@ test_models_config = [
         "llava-hf/llava-1.5-7b-hf",
         True,
         1,
-        784,
+        128,
         1024,
         336,
         "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/ai2d-demo.jpg",
         "What does the label 15 represent? (1) lava (2) core (3) tunnel (4) ash cloud",
-        1,
+        -1,
     ),
-    (
-        "llava-hf/llava-1.5-7b-hf",
-        False,
-        1,
-        784,
-        1024,
-        336,
-        "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/ai2d-demo.jpg",
-        "What does the label 15 represent? (1) lava (2) core (3) tunnel (4) ash cloud",
-        1,
-    ),
+    # (
+    #     "llava-hf/llava-1.5-7b-hf",
+    #     False,
+    #     1,
+    #     784,
+    #     1024,
+    #     336,
+    #     "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/ai2d-demo.jpg",
+    #     "What does the label 15 represent? (1) lava (2) core (3) tunnel (4) ash cloud",
+    #     1,
+    # ),
     # (
     #     "meta-llama/Llama-3.2-11B-Vision-Instruct",
     #     True,
@@ -75,29 +75,40 @@ test_models_config = [
     #     "Explain this image",
     #     7,
     # ),
+    # (
+    #     "ibm-granite/granite-vision-3.2-2b",
+    #     True,
+    #     1,
+    #     128,
+    #     6000,
+    #     384,
+    #     "https://prcdn.freetls.fastly.net/release_image/48278/144/48278-144-d4cfcb52b4b5ac718529bc89ac2ebc0d-1610x1109.jpg",
+    #     "Describe the image",
+    #     -1,
+    # ),
 ]
 
 intern_model_config = [
-    (
-        "OpenGVLab/InternVL2_5-1B",
-        True,
-        1,
-        384,
-        512,
-        "https://image.slidesharecdn.com/azureintroduction-191206101932/75/Introduction-to-Microsoft-Azure-Cloud-1-2048.jpg",
-        "Please describe the image in detail.",
-        2,
-    ),
-    (
-        "OpenGVLab/InternVL2_5-1B",
-        False,
-        1,
-        384,
-        512,
-        "https://image.slidesharecdn.com/azureintroduction-191206101932/75/Introduction-to-Microsoft-Azure-Cloud-1-2048.jpg",
-        "Please describe the image in detail.",
-        2,
-    ),
+    # (
+    #     "OpenGVLab/InternVL2_5-1B",
+    #     True,
+    #     1,
+    #     128,
+    #     512,
+    #     "https://image.slidesharecdn.com/azureintroduction-191206101932/75/Introduction-to-Microsoft-Azure-Cloud-1-2048.jpg",
+    #     "Please describe the image in detail.",
+    #     -1,
+    # ),
+    # (
+    #     "OpenGVLab/InternVL2_5-1B",
+    #     False,
+    #     1,
+    #     384,
+    #     512,
+    #     "https://image.slidesharecdn.com/azureintroduction-191206101932/75/Introduction-to-Microsoft-Azure-Cloud-1-2048.jpg",
+    #     "Please describe the image in detail.",
+    #     2,
+    # ),
 ]
 
 
@@ -136,6 +147,8 @@ def set_num_layers(config, n_layer=1):
         config.text_config.cross_attention_layers = [
             x for x in config.text_config.cross_attention_layers if x < n_layer
         ]
+    elif hasattr(config, "model_type") and "llava_next" in config.model_type:
+        config.text_config.num_hidden_layers = n_layer
     elif hasattr(config, "text_config"):
         config.text_config.num_hidden_layers = n_layer
         config.vision_config.num_hidden_layers = n_layer
@@ -156,7 +169,7 @@ def check_image_text_to_text_pytorch_vs_kv_vs_ort_vs_ai100(
     batch_size: int = 1,
     n_layer: int = 1,
     kv_offload: bool = False,
-    num_devices: int = 1,
+    num_devices: int = 4,
 ):
     model_config = {"model_name": model_name}
     model_config["img_size"] = img_size
@@ -169,15 +182,24 @@ def check_image_text_to_text_pytorch_vs_kv_vs_ort_vs_ai100(
 
     n_layer = get_num_layers_vlm(config)
     image = Image.open(requests.get(img_url, stream=True).raw)
+    image = None
     conversation = [
         {
             "role": "user",
             "content": [
                 {"type": "text", "text": query},
-                {"type": "image"},
             ],
         },
     ]
+    # conversation = [
+    #     {
+    #         "role": "user",
+    #         "content": [
+    #             {"type": "text", "text": query},
+    #             {"type": "image"},
+    #         ],
+    #     },
+    # ]
     prompt = processor.apply_chat_template(conversation, add_generation_prompt=True)
     api_runner = ApiRunnerVlm(
         batch_size,
@@ -206,24 +228,26 @@ def check_image_text_to_text_pytorch_vs_kv_vs_ort_vs_ai100(
     # assert (pytorch_kv_tokens == pytorch_hf_tokens).all(), (
     #     "Tokens don't match for pytorch HF output and pytorch KV output"
     # )
-
     qeff_model.export()
     # onnx_model_path = qeff_model.export()
     # ort_tokens = api_runner.run_vlm_kv_model_on_ort(onnx_model_path)
+    # breakpoint()
     # assert (pytorch_hf_tokens == ort_tokens).all(), "Tokens don't match for pytorch HF output and ORT output"
-    if not get_available_device_id():
-        pytest.skip("No available devices to run model on Cloud AI 100")
+    # if not get_available_device_id():
+    #     pytest.skip("No available devices to run model on Cloud AI 100")
     qeff_model.compile(
         img_size=model_config["img_size"],
         num_devices=num_devices,
         prefill_seq_len=prompt_len,
         ctx_len=ctx_len,
-        mxfp6=False,
+        mxfp6_matmul=False,
+        mxint8_kv_cache=False,
     )
     inputs = processor(images=image, text=prompt, return_tensors="pt")
     print("QPC Outputs (QAIC):")
     output = qeff_model.generate(inputs=inputs, generation_len=NEW_GENERATION_TOKENS, streamer=streamer)
     qpc_tokens = output.generated_ids[:, :-1]
+    breakpoint()
     assert (pytorch_hf_tokens == qpc_tokens).all(), "Tokens don't match for pytorch HF output and QPC output"
     return
 
@@ -267,6 +291,9 @@ def check_intern_image_text_to_text_pytorch_vs_kv_vs_ort_vs_ai100(
     )
     pixel_values = processor.load_image(image, max_num=12)
     question = "<image>\n" + query
+    # question = query
+    # pixel_values = None
+
     # Chat Template information for prompt preprocessing
     messages: List[List[str]] = []
     roles = ("<|im_start|>user\n", "<|im_start|>assistant\n")

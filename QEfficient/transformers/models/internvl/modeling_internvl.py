@@ -40,10 +40,11 @@ class QEffInternDecoderWrapper(nn.Module):
         self.config = self.model.language_model.config
         self.language_model = self.model.language_model
 
-    def forward(self, input_ids, vision_embeds, position_ids, past_key_values):
-        image_embeds = vision_embeds[:, : input_ids.shape[1], :]
+    def forward(self, input_ids, vision_embeds, position_ids, past_key_values, only_text = False):
         inputs_embeds = self.model.language_model.get_input_embeddings()(input_ids)
+        image_embeds = torch.where(torch.tensor(only_text), inputs_embeds, vision_embeds[:, : input_ids.shape[1], :])
         inputs_embeds = torch.where(input_ids.shape[1] == torch.tensor(1), inputs_embeds, image_embeds)
+        
         outputs = self.model.language_model(
             inputs_embeds=inputs_embeds, position_ids=position_ids, past_key_values=past_key_values, use_cache=True
         )
@@ -83,12 +84,16 @@ class QEffInternVLModel(nn.Module):
             logger.warning("Setting img_size to be 448, as it was neither passed nor found in vision_config")
         if img_size != constants.INTERN_IMG_SIZE and kv_offload:
             raise NotImplementedError("Image Size other than 448 is not supported for Intern models yet.")
+        vision_seq_len = compiler_options.pop("vision_seq_len", None)
+        if vision_seq_len is None:
+            vision_seq_len = constants.INTERN_PREFILL_SEQ_LEN
+            logger.warning(f"Setting vision_seq_len to be {vision_seq_len}, as it wasn't passed in compile arguements")
         vision = [
             {
                 "batch_size": batch_size,
                 "num_patches": num_patches,
                 "img_size": img_size,
-                "seq_len": prefill_seq_len,
+                "seq_len": vision_seq_len,
                 "ctx_len": ctx_len,
             }
         ]
@@ -208,6 +213,7 @@ class QEffInternVLModel(nn.Module):
             .view(1, constants.ONNX_EXPORT_EXAMPLE_SEQ_LEN)
             .repeat(constants.ONNX_EXPORT_EXAMPLE_BATCH_SIZE, 1)
         )
+        lang_inputs["only_text"] = False
 
         # Add data for KV
         kv_cache_shape = get_padding_shape_from_config(
@@ -227,6 +233,7 @@ class QEffInternVLModel(nn.Module):
             inputs["lang"] = lang_inputs
         else:
             lang_inputs.pop("vision_embeds")
+            lang_inputs.pop("only_text")
             inputs = {**vision_inputs, **lang_inputs}
 
         return inputs
