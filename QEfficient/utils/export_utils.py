@@ -18,6 +18,7 @@ from QEfficient.utils.cache import QEFF_HOME
 from QEfficient.utils.hash_utils import create_export_hash
 from QEfficient.utils.logging_utils import logger
 from QEfficient.utils.torch_patches import apply_torch_patches, undo_torch_patches
+from QEfficient.utils.weight_chunk_utils import is_large_embed_chunking_applied
 
 
 def export_wrapper(func):
@@ -125,6 +126,8 @@ def _generate_export_hash(qeff_model, args, kwargs, func):
             "config": config_val,
         }
     )
+    copy_of_hash_params["embed_chunking_applied"] = is_large_embed_chunking_applied(qeff_model.model)
+
     # Generate hash from relevant parameters
     export_hash, filtered_hash_params = create_export_hash(
         model_params=copy_of_hash_params,

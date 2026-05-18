@@ -53,6 +53,7 @@ from QEfficient.transformers.models.pytorch_transforms import (
     PrefillOnlyChunkedTransform,
     PrefillOnlyExternalModuleMapperTransform,
     PrefillOnlyTransform,
+    QeffLargeWeightChunkTransform,
     RevertPrefillKeepAttentionTransform,
     RevertPrefillOnlyExternalModuleMapperTransform,
     RevertPrefillOnlyTransform,
@@ -244,7 +245,12 @@ class QEFFAutoModel(QEFFTransformersBase):
     """
 
     _hf_auto_class = AutoModel
-    _pytorch_transforms = [CustomOpsTransform, AwqToMatmulNbitsTransform, GPTQToMatmulNbitsTransform]
+    _pytorch_transforms = [
+        CustomOpsTransform,
+        AwqToMatmulNbitsTransform,
+        GPTQToMatmulNbitsTransform,
+        QeffLargeWeightChunkTransform,
+    ]
     # FP16Clip inlines external weights; without Split the saved protobuf exceeds 2GB for large embedders.
     _onnx_transforms = [FP16ClipTransform, SplitTensorsTransform]
 
@@ -643,7 +649,7 @@ class QEFFAutoModelForSequenceClassification(QEFFTransformersBase):
     """
 
     _hf_auto_class = AutoModelForSequenceClassification
-    _pytorch_transforms = [CustomOpsTransform, TextClassificationTransform]
+    _pytorch_transforms = [CustomOpsTransform, TextClassificationTransform, QeffLargeWeightChunkTransform]
     _onnx_transforms = []
 
     def __init__(self, model: nn.Module, **kwargs):
@@ -1027,6 +1033,7 @@ class QEffCausalLMForTextImageToTextModel(QEFFBaseModel):
         KVCacheTransform,
         VlmKVOffloadTransform,
         SplitGateUpWeightsTransform,
+        QeffLargeWeightChunkTransform,
     ]
     _onnx_transforms = []
 
@@ -1988,6 +1995,7 @@ class _QEFFAutoModelForImageTextToTextSingleQPC(QEFFTransformersBase, Multimodal
         KVCacheExternalModuleMapperTransform,
         VlmNoKVOffloadTransform,
         SplitGateUpWeightsTransform,
+        QeffLargeWeightChunkTransform,
     ]
     _onnx_transforms = []
 
@@ -2749,6 +2757,7 @@ class QEFFAutoModelForCausalLM(QEFFBaseModel):
         KVCacheTransform,
         SplitGateUpWeightsTransform,
         KVCacheExternalModuleMapperTransform,
+        QeffLargeWeightChunkTransform,
     ]
 
     _onnx_transforms = []

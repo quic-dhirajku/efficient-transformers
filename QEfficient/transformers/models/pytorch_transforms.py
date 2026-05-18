@@ -237,7 +237,11 @@ from transformers.models.whisper.modeling_whisper import (
     WhisperPositionalEmbedding,
 )
 
-from QEfficient.base.pytorch_transforms import ExternalModuleMapperTransform, ModuleMappingTransform
+from QEfficient.base.pytorch_transforms import (
+    ExternalModuleMapperTransform,
+    ModuleMappingTransform,
+    ModuleMutatorTransform,
+)
 from QEfficient.customop import CustomRMSNormAIC, GemmaCustomRMSNormAIC
 from QEfficient.transformers.embeddings.embedding_utils import POOLING_MAP, PooledModel, validate_user_pooling_function
 from QEfficient.transformers.models.codegen.modeling_codegen import (
@@ -510,6 +514,11 @@ from QEfficient.transformers.post_processing import build_and_attach_mlp, model_
 from QEfficient.transformers.sampler.sampler import sampler_forward
 from QEfficient.transformers.spd.spd_transform_forward import tlm_forward
 from QEfficient.utils.logging_utils import logger
+from QEfficient.utils.weight_chunk_utils import (
+    QeffChunkedEmbedding,
+    QeffChunkedLMHead,
+    _num_chunks_for_weight,
+)
 
 SPD_TARGET = "target"
 
@@ -538,6 +547,69 @@ class CustomOpsTransform(ModuleMappingTransform):
         Qwen3VLMoeTextRMSNorm: CustomRMSNormAIC,
         Qwen3VLTextRMSNorm: CustomRMSNormAIC,
     }
+
+
+class QeffLargeWeightChunkTransform(ModuleMutatorTransform):
+    """
+    Replace large text weights with chunked modules only when needed.
+    """
+
+    _match_class = (nn.Embedding, nn.Linear)
+
+    @staticmethod
+    def _find_child_name(parent_module: Optional[nn.Module], child_module: nn.Module) -> Optional[str]:
+        if parent_module is None:
+            return None
+        for child_name, module in parent_module.named_children():
+            if module is child_module:
+                return child_name
+        return None
+
+    @classmethod
+    def mutate(cls, original_module: nn.Module, parent_module: Optional[nn.Module]):
+        child_name = cls._find_child_name(parent_module, original_module)
+
+        if isinstance(original_module, nn.Embedding):
+            num_chunks = _num_chunks_for_weight(original_module.num_embeddings, original_module.embedding_dim)
+            if num_chunks > 1:
+                new_module = QeffChunkedEmbedding.from_embedding(original_module)
+                logger.info(
+                    f"Replaced nn.Embedding '{child_name or '<root>'}' "
+                    f"({original_module.num_embeddings}x{original_module.embedding_dim}) "
+                    f"with QeffChunkedEmbedding ({len(new_module.chunks)} chunks)"
+                )
+                return new_module
+            return original_module
+
+        if isinstance(original_module, nn.Linear) and child_name == "lm_head":
+            num_chunks = _num_chunks_for_weight(original_module.out_features, original_module.in_features)
+            if num_chunks > 1:
+                new_module = QeffChunkedLMHead.from_linear(original_module)
+                logger.info(
+                    f"Replaced nn.Linear '{child_name}' (lm_head) "
+                    f"({original_module.out_features}x{original_module.in_features}) "
+                    f"with QeffChunkedLMHead ({len(new_module.chunks)} chunks)"
+                )
+                return new_module
+
+        return original_module
+
+    @classmethod
+    def apply(cls, model: nn.Module) -> Tuple[nn.Module, bool]:
+        transformed = False
+
+        for child_name, module in model.named_children():
+            if isinstance(module, cls._match_class):
+                new_module = cls.mutate(module, model)
+                if new_module is not module:
+                    setattr(model, child_name, new_module)
+                    module = new_module
+                    transformed = True
+
+            _, child_transformed = cls.apply(module)
+            transformed = transformed or child_transformed
+
+        return model, transformed
 
 
 class KVCacheTransform(ModuleMappingTransform):
