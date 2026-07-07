@@ -1318,13 +1318,21 @@ class QEffGemma4ForConditionalGeneration(Gemma4ForConditionalGeneration):
         return past_key_values
 
     def get_dummy_inputs(
-        self, comp_ctx_lengths: Optional[List[int]] = None, kv_offload: bool = False, continuous_batching: bool = False
+        self,
+        comp_ctx_lengths: Optional[List[int]] = None,
+        kv_offload: bool = False,
+        continuous_batching: bool = False,
+        **kwargs,
     ):
         bs = constants.ONNX_EXPORT_EXAMPLE_BATCH_SIZE
         fbs = constants.ONNX_EXPORT_EXAMPLE_FBS
         max_patches = self._get_vision_max_patches()
         mm_tokens_per_image = self._get_mm_tokens_per_image()
-        seq_len = max(constants.ONNX_EXPORT_EXAMPLE_SEQ_LEN, mm_tokens_per_image + 32)
+        prefill_seq_len = kwargs.get("prefill_seq_len", constants.ONNX_EXPORT_EXAMPLE_SEQ_LEN)
+        if prefill_seq_len is None:
+            prefill_seq_len = constants.ONNX_EXPORT_EXAMPLE_SEQ_LEN
+        prefill_seq_len = int(prefill_seq_len)
+        seq_len = max(prefill_seq_len, mm_tokens_per_image + 32)
         patch_dim = getattr(self.config.vision_config, "patch_size", 16) ** 2 * 3
 
         image_position_ids = torch.full((bs, max_patches, 2), -1, dtype=torch.int64)

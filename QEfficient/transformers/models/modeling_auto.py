@@ -1553,12 +1553,22 @@ class _QEffAutoModelForImageTextToTextDualQPC:
                 **kwargs,
             )
 
+        seq_len: int = constants.ONNX_EXPORT_EXAMPLE_SEQ_LEN
+        if self.lang_model.hash_params.get("blocking_kwargs", None):
+            max_blocks = -1
+            for num_blocks in self.lang_model.hash_params.get("blocking_kwargs").__dict__.values():
+                if isinstance(num_blocks, int):
+                    max_blocks = max(max_blocks, num_blocks)
+            block_size = -(-seq_len // max_blocks)
+            seq_len = block_size * max_blocks
+
         # TODO This is a temporary change as continous batching is enabled only for few models. Once support is added for all the models this exception handing can be removed.
         try:
             inputs = self.model.get_dummy_inputs(
                 kv_offload=True,
                 continuous_batching=self.continuous_batching,
                 comp_ctx_lengths=self.comp_ctx_lengths_decode,
+                prefill_seq_len=seq_len,
             )
             dynamic_axes = self.model.get_onnx_dynamic_axes(
                 kv_offload=True,
@@ -1569,6 +1579,7 @@ class _QEffAutoModelForImageTextToTextDualQPC:
             inputs = self.model.get_dummy_inputs(
                 kv_offload=True,
                 comp_ctx_lengths=self.comp_ctx_lengths_decode,
+                prefill_seq_len=seq_len,
             )
             dynamic_axes = self.model.get_onnx_dynamic_axes(
                 kv_offload=True, comp_ctx_lengths=self.comp_ctx_lengths_decode
@@ -2710,7 +2721,16 @@ class _QEFFAutoModelForImageTextToTextSingleQPC(QEFFTransformersBase, Multimodal
             self.hash_params["prefill_only"] = False
             self.__update_prefill_transform(False, retain_full_kv=kwargs.get("retain_full_kv", False))
 
-        inputs = self.model.get_dummy_inputs(comp_ctx_lengths=self.comp_ctx_lengths_decode)
+        seq_len: int = constants.ONNX_EXPORT_EXAMPLE_SEQ_LEN
+        if self.hash_params.get("blocking_kwargs", None):
+            max_blocks = -1
+            for num_blocks in self.hash_params.get("blocking_kwargs").__dict__.values():
+                if isinstance(num_blocks, int):
+                    max_blocks = max(max_blocks, num_blocks)
+            block_size = -(-seq_len // max_blocks)
+            seq_len = block_size * max_blocks
+
+        inputs = self.model.get_dummy_inputs(comp_ctx_lengths=self.comp_ctx_lengths_decode, prefill_seq_len=seq_len)
         dynamic_axes = self.model.get_onnx_dynamic_axes(comp_ctx_lengths=self.comp_ctx_lengths_decode)
         output_names = self.model.get_output_names()
         # Prefix only the LLM KV-cache retained buffers (vision/multimodal buffers untouched).
