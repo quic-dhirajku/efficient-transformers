@@ -35,6 +35,7 @@ from QEfficient.utils.test_utils import (
 from tests.two_phase import model_export_compile_lock, resolve_two_phase_cleanup
 from tests.utils.image_utils import load_test_image
 from tests.utils.load_kimi_utils import (
+    add_kimi_k25_test_hash_salt,
     get_kimi_k25_test_config,
     is_kimi_k25,
     load_kimi_k25_model_from_config,
@@ -119,6 +120,7 @@ def check_image_text_to_text_pytorch_vs_kv_vs_ort_vs_ai100_CB(
             torch_dtype=torch.float32,
             continuous_batching=True,
         )
+        add_kimi_k25_test_hash_salt(qeff_model)
     elif config is None:
         config = AutoConfig.from_pretrained(
             model_name, trust_remote_code=True, padding=model_name not in ModelConfig.MOLMO_MODELS

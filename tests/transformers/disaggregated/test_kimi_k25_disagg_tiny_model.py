@@ -23,6 +23,7 @@ from QEfficient.utils.constants import DEFAULT_AIC_NUM_CORES
 from tests.two_phase import model_export_compile_lock, resolve_two_phase_cleanup
 from tests.utils.load_kimi_utils import (
     KIMI_K25_MODEL_NAME,
+    add_kimi_k25_test_hash_salt,
     get_kimi_k25_test_config,
     load_kimi_k25_model_from_config,
     run_kimi_k25_hf_model_on_pytorch,
@@ -302,6 +303,7 @@ def test_kimi_k25_disagg_qaic_vs_hf_fp32(manual_cleanup):
         torch_dtype=torch.float32,
         layerwise=False,
     )
+    add_kimi_k25_test_hash_salt(qeff_model, seed=1234)
 
     compile_dims = _get_image_compile_dims(image_height, image_width)
     with model_export_compile_lock(KIMI_K25_MODEL_NAME):
